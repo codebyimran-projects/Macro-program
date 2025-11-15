@@ -1,107 +1,302 @@
 # ui/interface.py
 import customtkinter as ctk
 from core.smart_macro_engine import SmartMacroEngine
+import threading
+import tkinter as tk
 from tkinter import messagebox
+
 
 class MacroUI:
     def __init__(self):
-        self.window = ctk.CTk()
-        self.window.title("MacroMaster-Pro | CodeByImran")
-        self.window.geometry("1100x750")
-        self.window.resizable(False, False)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("green")
 
-        # ---------------- CORE ENGINE ----------------
+        self.window = ctk.CTk()
+        self.window.title("MacroMaster-Pro | Smart Logic Engine")
+        self.window.geometry("1150x760")
+
         self.engine = SmartMacroEngine()
 
-        # ---------------- HEADER ----------------
-        self.header = ctk.CTkLabel(
-            self.window, text="MacroMaster-Pro | CodeByImran",
-            font=("Arial", 26, "bold"), text_color="#56b37f"
+        # Header
+        self.header = ctk.CTkLabel(self.window, text="MacroMaster-Pro | Smart Logic Engine", font=("Arial", 24, "bold"))
+        self.header.pack(pady=12)
+
+        # Table frame with scrollbar
+        self.table_container = ctk.CTkFrame(self.window)
+        self.table_container.pack(padx=12, pady=6, fill="both", expand=True)
+
+        # Create canvas and scrollbar for table
+        self.canvas = tk.Canvas(self.table_container, bg='#2b2b2b', highlightthickness=0)
+        self.scrollbar = ctk.CTkScrollbar(self.table_container, orientation="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ctk.CTkFrame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
-        self.header.pack(pady=10)
 
-        # ---------------- MACRO TABLE ----------------
-        self.table_frame = ctk.CTkFrame(self.window)
-        self.table_frame.pack(pady=10, padx=20, fill="x")
-        headers = ["Keys/Sequence", "Text", "Delay Char", "Delay Word", "Condition"]
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        self.scrollbar.pack(side="right", fill="y")
+
+        # Bind mousewheel to canvas
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+
+        # Table headers
+        headers = ["Keys / Sequence", "Output", "Timeout", "CharDelay", "WordDelay", "Delete"]
         for i, h in enumerate(headers):
-            ctk.CTkLabel(self.table_frame, text=h, font=("Arial", 14, "bold")).grid(row=0, column=i, padx=10)
-        self.macro_rows = []
+            ctk.CTkLabel(self.scrollable_frame, text=h, font=("Arial", 12, "bold")).grid(
+                row=0, column=i, padx=6, pady=6, sticky="ew"
+            )
 
-        # ---------------- ADD MACRO ----------------
+        self.row_widgets = []
+
+        # Input area
         self.add_frame = ctk.CTkFrame(self.window)
-        self.add_frame.pack(pady=20, padx=20, fill="x")
+        self.add_frame.pack(padx=12, pady=8, fill="x")
 
-        self.key_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Keys e.g. i or i+b")
-        self.key_entry.grid(row=0, column=0, padx=5, pady=5)
-        self.text_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Text to type")
-        self.text_entry.grid(row=0, column=1, padx=5, pady=5)
-        self.delay_char_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Delay Char (sec)")
-        self.delay_char_entry.grid(row=0, column=2, padx=5, pady=5)
-        self.delay_word_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Delay Word (sec)")
-        self.delay_word_entry.grid(row=0, column=3, padx=5, pady=5)
+        # Basic single-rule inputs
+        self.keys_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Keys (e.g. i or i+b or ctrl+shift+x)", width=200)
+        self.keys_entry.grid(row=0, column=0, padx=6)
 
-        self.add_button = ctk.CTkButton(self.add_frame, text="Add Macro", command=self.add_macro)
-        self.add_button.grid(row=0, column=4, padx=10, pady=5)
+        self.output_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Output text", width=200)
+        self.output_entry.grid(row=0, column=1, padx=6)
 
-        # ---------------- FEEDBACK ----------------
-        self.feedback_label = ctk.CTkLabel(self.window, text="", font=("Arial", 14))
-        self.feedback_label.pack(pady=10)
+        self.timeout_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Timeout (sec)", width=120)
+        self.timeout_entry.insert(0, "1.0")
+        self.timeout_entry.grid(row=0, column=2, padx=6)
 
-    # ---------------- ADD MACRO ----------------
-    def add_macro(self):
-        keys = self.key_entry.get().strip().split("+")
-        text = self.text_entry.get().strip()
-        try: delay_char = float(self.delay_char_entry.get())
-        except: delay_char = 0
-        try: delay_word = float(self.delay_word_entry.get())
-        except: delay_word = 0
+        self.char_delay_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Char Delay (sec)", width=120)
+        self.char_delay_entry.insert(0, "0.02")
+        self.char_delay_entry.grid(row=0, column=3, padx=6)
 
-        if not keys or not text:
-            self.feedback_label.configure(text="⚠️ Fill keys and text!")
+        self.word_delay_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Word Delay (sec)", width=120)
+        self.word_delay_entry.insert(0, "0.15")
+        self.word_delay_entry.grid(row=0, column=4, padx=6)
+
+        self.add_btn = ctk.CTkButton(self.add_frame, text="Add Rule", command=self.add_rule_from_inputs)
+        self.add_btn.grid(row=0, column=5, padx=6)
+
+        # Separator
+        self.sep = ctk.CTkLabel(self.window, text="— OR — Bulk Import Using Logic Syntax —", font=("Arial", 12))
+        self.sep.pack(pady=4)
+
+        # Logic input
+        self.logic_frame = ctk.CTkFrame(self.window)
+        self.logic_frame.pack(padx=12, pady=6, fill="both", expand=False)
+
+        self.logic_label = ctk.CTkLabel(self.logic_frame, text="Logic (multiple clauses):", anchor="w")
+        self.logic_label.grid(row=0, column=0, sticky="w", padx=6, pady=4, columnspan=4)
+
+        self.logic_text = ctk.CTkTextbox(self.logic_frame, width=980, height=120)
+        example = (
+            "# Multiple formats supported:\n"
+            "if i { imran, 0.02, 0.1, 1.0 }\n"
+            "if i+b { khan, 0.02, 0.15, 1.0 }\n"
+            "i+c = xyz\n"
+            "i+d: hello world\n"
+            "if i+b+c { multi level sequence }"
+        )
+        self.logic_text.insert("0.0", example)
+        self.logic_text.grid(row=1, column=0, columnspan=4, padx=6, pady=6)
+
+        # Default time/delays for logic parsing
+        self.logic_timeout_entry = ctk.CTkEntry(self.logic_frame, placeholder_text="Default Timeout (sec)", width=140)
+        self.logic_timeout_entry.insert(0, "1.0")
+        self.logic_timeout_entry.grid(row=2, column=0, padx=6, pady=6)
+
+        self.logic_char_delay_entry = ctk.CTkEntry(self.logic_frame, placeholder_text="Default Char Delay", width=140)
+        self.logic_char_delay_entry.insert(0, "0.02")
+        self.logic_char_delay_entry.grid(row=2, column=1, padx=6, pady=6)
+
+        self.logic_word_delay_entry = ctk.CTkEntry(self.logic_frame, placeholder_text="Default Word Delay", width=140)
+        self.logic_word_delay_entry.insert(0, "0.15")
+        self.logic_word_delay_entry.grid(row=2, column=2, padx=6, pady=6)
+
+        self.add_logic_btn = ctk.CTkButton(self.logic_frame, text="Add Logic Clauses", command=self.add_logic_clauses)
+        self.add_logic_btn.grid(row=2, column=3, padx=6, pady=6)
+
+        # Status label
+        self.status_label = ctk.CTkLabel(self.window, text="Ready - 0 rules loaded", text_color="lightblue")
+        self.status_label.pack(pady=4)
+
+        # Control buttons
+        self.controls_frame = ctk.CTkFrame(self.window)
+        self.controls_frame.pack(padx=12, pady=6, fill="x")
+
+        self.clear_btn = ctk.CTkButton(self.controls_frame, text="Clear All Rules", command=self.clear_rules, fg_color="red")
+        self.clear_btn.grid(row=0, column=0, padx=6)
+
+        self.refresh_btn = ctk.CTkButton(self.controls_frame, text="Refresh Table", command=self.update_table)
+        self.refresh_btn.grid(row=0, column=1, padx=6)
+
+        self.export_btn = ctk.CTkButton(self.controls_frame, text="Export Rules", command=self.export_rules)
+        self.export_btn.grid(row=0, column=2, padx=6)
+
+        # initial table
+        self.update_table()
+
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+    # ---------------------------
+    # UI actions
+    # ---------------------------
+    def add_rule_from_inputs(self):
+        keys_raw = self.keys_entry.get().strip()
+        output = self.output_entry.get().strip()
+        
+        try:
+            timeout = float(self.timeout_entry.get())
+        except Exception:
+            timeout = 1.0
+        try:
+            char_delay = float(self.char_delay_entry.get())
+        except Exception:
+            char_delay = 0.02
+        try:
+            word_delay = float(self.word_delay_entry.get())
+        except Exception:
+            word_delay = 0.15
+
+        if not keys_raw or not output:
+            messagebox.showwarning("Input Error", "Please enter both keys and output")
             return
 
-        # Create condition function
-        def condition(buf, k=keys):
-            return buf[-len(k):] == k  # matches the end of buffer
+        keys = self._parse_keys_input(keys_raw)
+        try:
+            self.engine.add_rule(keys, output, timeout, char_delay, word_delay)
+            self.update_table()
+            self.keys_entry.delete(0, 'end')
+            self.output_entry.delete(0, 'end')
+        except ValueError as e:
+            messagebox.showerror("Duplicate Rule", str(e))
 
-        self.engine.add_macro(condition, text, delay_char, delay_word)
-        self.feedback_label.configure(text=f"✅ Macro added: {'+'.join(keys)} -> {text}")
-        self.update_macro_table()
+    def add_logic_clauses(self):
+        logic_text = self.logic_text.get("0.0", "end").strip()
+        if not logic_text:
+            messagebox.showwarning("Input Error", "Please enter logic clauses")
+            return
+            
+        try:
+            timeout = float(self.logic_timeout_entry.get())
+        except:
+            timeout = 1.0
+        try:
+            char_delay = float(self.logic_char_delay_entry.get())
+        except:
+            char_delay = 0.02
+        try:
+            word_delay = float(self.logic_word_delay_entry.get())
+        except:
+            word_delay = 0.15
 
-    # ---------------- UPDATE TABLE ----------------
-    def update_macro_table(self):
-        for row in self.macro_rows:
+        # Show processing message
+        self.status_label.configure(text="Processing logic clauses...")
+        
+        # Use a thread so UI doesn't freeze
+        threading.Thread(target=self._add_logic_thread, args=(logic_text, timeout, char_delay, word_delay), daemon=True).start()
+
+    def _add_logic_thread(self, logic_text, timeout, char_delay, word_delay):
+        try:
+            rules_added = self.engine.add_rules_from_logic(logic_text, timeout, char_delay, word_delay)
+            self.window.after(0, self._on_logic_complete, rules_added)
+        except Exception as e:
+            self.window.after(0, self._on_logic_error, str(e))
+
+    def _on_logic_complete(self, rules_added):
+        self.update_table()
+        self.status_label.configure(text=f"Successfully added {rules_added} rules - Total: {self.engine.get_rules_count()}")
+
+    def _on_logic_error(self, error_msg):
+        messagebox.showerror("Processing Error", f"Error processing logic: {error_msg}")
+        self.status_label.configure(text=f"Error - {self.engine.get_rules_count()} rules loaded")
+
+    def _parse_keys_input(self, keys_raw: str):
+        s = keys_raw.replace(",", "+").replace(" ", "+")
+        parts = [p.strip().lower() for p in s.split("+") if p.strip()]
+        return parts
+
+    def update_table(self):
+        # remove old widgets
+        for row in self.row_widgets:
             for w in row:
-                w.destroy()
-        self.macro_rows.clear()
+                try:
+                    w.destroy()
+                except Exception:
+                    pass
+        self.row_widgets.clear()
 
-        for i, macro in enumerate(self.engine.macros):
-            row_widgets = []
-            keys_label = ctk.CTkLabel(self.table_frame, text="+".join(macro["condition"].__defaults__[0]))
-            keys_label.grid(row=i+1, column=0, padx=10)
-            row_widgets.append(keys_label)
+        # repopulate
+        rules = self.engine.debug_rules()
+        for i, r in enumerate(rules):
+            row = []
+            
+            k_label = ctk.CTkLabel(self.scrollable_frame, text="+".join(r["keys"]))
+            k_label.grid(row=i+1, column=0, padx=6, pady=4, sticky="ew")
+            row.append(k_label)
 
-            text_label = ctk.CTkLabel(self.table_frame, text=macro["text"])
-            text_label.grid(row=i+1, column=1, padx=10)
-            row_widgets.append(text_label)
+            o_label = ctk.CTkLabel(self.scrollable_frame, text=r["output"])
+            o_label.grid(row=i+1, column=1, padx=6, pady=4, sticky="ew")
+            row.append(o_label)
 
-            delay_char_label = ctk.CTkLabel(self.table_frame, text=str(macro["delay_char"]))
-            delay_char_label.grid(row=i+1, column=2, padx=10)
-            row_widgets.append(delay_char_label)
+            t_label = ctk.CTkLabel(self.scrollable_frame, text=f"{r['timeout']:.2f}")
+            t_label.grid(row=i+1, column=2, padx=6, pady=4, sticky="ew")
+            row.append(t_label)
 
-            delay_word_label = ctk.CTkLabel(self.table_frame, text=str(macro["delay_word"]))
-            delay_word_label.grid(row=i+1, column=3, padx=10)
-            row_widgets.append(delay_word_label)
+            cd_label = ctk.CTkLabel(self.scrollable_frame, text=f"{r['char_delay']:.3f}")
+            cd_label.grid(row=i+1, column=3, padx=6, pady=4, sticky="ew")
+            row.append(cd_label)
 
-            cond_label = ctk.CTkLabel(self.table_frame, text="End of Buffer Match")
-            cond_label.grid(row=i+1, column=4, padx=10)
-            row_widgets.append(cond_label)
+            wd_label = ctk.CTkLabel(self.scrollable_frame, text=f"{r['word_delay']:.3f}")
+            wd_label.grid(row=i+1, column=4, padx=6, pady=4, sticky="ew")
+            row.append(wd_label)
 
-            self.macro_rows.append(row_widgets)
+            del_btn = ctk.CTkButton(self.scrollable_frame, text="Delete", 
+                                  command=lambda rule=r: self._delete_rule_by_repr(rule),
+                                  fg_color="red", hover_color="darkred")
+            del_btn.grid(row=i+1, column=5, padx=6, pady=4)
+            row.append(del_btn)
 
-    # ---------------- RUN APP ----------------
+            self.row_widgets.append(row)
+
+        # Update status
+        self.status_label.configure(text=f"Ready - {len(rules)} rules loaded")
+
+    def _delete_rule_by_repr(self, rule_repr):
+        # find matching rule object from engine.rules and remove
+        for r in list(self.engine.rules):
+            if (r["keys"] == rule_repr["keys"] and 
+                r["output"] == rule_repr["output"] and 
+                float(r["timeout"]) == float(rule_repr["timeout"])):
+                self.engine.rules.remove(r)
+                break
+        self.update_table()
+
+    def clear_rules(self):
+        if messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all rules?"):
+            self.engine.clear_rules()
+            self.update_table()
+
+    def export_rules(self):
+        """Export current rules to logic format"""
+        rules_text = ""
+        for rule in self.engine.debug_rules():
+            rules_text += f"if {'+'.join(rule['keys'])} {{ {rule['output']}, {rule['char_delay']}, {rule['word_delay']}, {rule['timeout']} }}\n"
+        
+        # Create export window
+        export_window = ctk.CTkToplevel(self.window)
+        export_window.title("Export Rules")
+        export_window.geometry("600x400")
+        
+        textbox = ctk.CTkTextbox(export_window, width=580, height=350)
+        textbox.insert("0.0", rules_text)
+        textbox.pack(padx=10, pady=10)
+        
+        close_btn = ctk.CTkButton(export_window, text="Close", command=export_window.destroy)
+        close_btn.pack(pady=10)
+
     def run(self):
         self.window.mainloop()
