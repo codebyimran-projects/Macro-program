@@ -23,29 +23,74 @@ class SmartMacroEngine:
     # -------------------------
     # Add a macro
     # -------------------------
-    def add_rule(self, keys, output, timeout=1.0, char_delay=0.02, word_delay=0.15):
+    def add_rule(self, keys, output, timeout=1.0, char_delay=0.02, word_delay=0.15, per_char_delays=None):
         keys = [k.lower() for k in keys]
         for rule in self.rules:
             if rule["keys"] == keys:
                 raise ValueError(f"Sequence '{'+'.join(keys)}' already exists!")
+        
+        # Parse per-character delays if provided
+        parsed_per_char_delays = self._parse_per_char_delays(output, per_char_delays)
+        
         self.rules.append({
             "keys": keys,
             "output": output,
             "timeout": timeout,
             "char_delay": char_delay,
-            "word_delay": word_delay
+            "word_delay": word_delay,
+            "per_char_delays": parsed_per_char_delays  # Store parsed delays
         })
 
+    def _parse_per_char_delays(self, output, per_char_delays):
+        """Parse per-character delays from various formats"""
+        if not per_char_delays:
+            return None
+            
+        # Format 1: Dictionary like {'i': 0.1, 'm': 1.0, 'r': 0.05}
+        if isinstance(per_char_delays, dict):
+            return per_char_delays
+            
+        # Format 2: String like "i:0.1, m:1.0, r:0.05" or "i=0.1 m=1.0 r=0.05"
+        if isinstance(per_char_delays, str):
+            delays_dict = {}
+            try:
+                # Try comma-separated format: "i:0.1, m:1.0, r:0.05"
+                if ',' in per_char_delays:
+                    pairs = [pair.strip() for pair in per_char_delays.split(',')]
+                    for pair in pairs:
+                        if ':' in pair:
+                            char, delay = pair.split(':', 1)
+                            delays_dict[char.strip()] = float(delay.strip())
+                        elif '=' in pair:
+                            char, delay = pair.split('=', 1)
+                            delays_dict[char.strip()] = float(delay.strip())
+                # Try space-separated format: "i=0.1 m=1.0 r=0.05"
+                else:
+                    pairs = per_char_delays.split()
+                    for pair in pairs:
+                        if '=' in pair:
+                            char, delay = pair.split('=', 1)
+                            delays_dict[char.strip()] = float(delay.strip())
+                        elif ':' in pair:
+                            char, delay = pair.split(':', 1)
+                            delays_dict[char.strip()] = float(delay.strip())
+            except Exception as e:
+                print(f"Error parsing per-char delays: {e}")
+                return None
+            return delays_dict
+            
+        return None
+
     # -------------------------
-    # Enhanced logic parser with multiple formats
+    # Enhanced logic parser with multiple formats + per-char delays
     # -------------------------
     def add_rules_from_logic(self, logic_text, default_timeout=1.0, default_char_delay=0.02, default_word_delay=0.15):
         """
-        Parse multiple logic formats:
+        Parse multiple logic formats with per-character delays:
         Format 1: if <keys> { <output>, <char_delay>, <word_delay>, <timeout> }
-        Format 2: if <keys> { <output> }
+        Format 2: if <keys> { <output> | i:0.1 m:1.0 r:0.05 }
         Format 3: <keys> = <output>
-        Format 4: <keys>: <output>
+        Format 4: <keys>: <output> | i=0.1 m=1.0
         """
         lines = [l.strip() for l in logic_text.split("\n") if l.strip()]
         rules_added = 0
@@ -56,17 +101,17 @@ class SmartMacroEngine:
                 if line.startswith("#") or line.startswith("//"):
                     continue
                     
-                # Format 1 & 2: if <keys> { <output>, <char_delay>, <word_delay>, <timeout> }
+                # Format 1 & 2: if <keys> { <output>, <char_delay>, <word_delay>, <timeout> } or with per-char delays
                 if line.lower().startswith("if") and "{" in line and "}" in line:
                     self._parse_if_format(line, default_timeout, default_char_delay, default_word_delay)
                     rules_added += 1
                 
-                # Format 3: <keys> = <output>
+                # Format 3: <keys> = <output> with optional per-char delays
                 elif "=" in line and not line.startswith("if"):
                     self._parse_equals_format(line, default_timeout, default_char_delay, default_word_delay)
                     rules_added += 1
                 
-                # Format 4: <keys>: <output>
+                # Format 4: <keys>: <output> with optional per-char delays
                 elif ":" in line and not line.startswith("if"):
                     self._parse_colon_format(line, default_timeout, default_char_delay, default_word_delay)
                     rules_added += 1
@@ -78,63 +123,85 @@ class SmartMacroEngine:
         return rules_added
 
     def _parse_if_format(self, line, default_timeout, default_char_delay, default_word_delay):
-        """Parse if <keys> { <output>, <char_delay>, <word_delay>, <timeout> } format"""
+        """Parse if <keys> { <output>, <char_delay>, <word_delay>, <timeout> } format with per-char delays"""
         try:
             # Extract keys part
             keys_part = line.split("if", 1)[1].split("{")[0].strip()
             # Extract content inside braces
             content = line.split("{", 1)[1].rsplit("}", 1)[0].strip()
             
-            # Parse content which may contain output and parameters
-            parts = [p.strip() for p in content.split(",")]
-            output = parts[0].strip()
+            # Check if per-char delays are specified with | separator
+            per_char_delays = None
+            if "|" in content:
+                output_part, delays_part = content.split("|", 1)
+                output = output_part.strip()
+                per_char_delays = delays_part.strip()
+            else:
+                # Parse content which may contain output and parameters
+                parts = [p.strip() for p in content.split(",")]
+                output = parts[0].strip()
             
             # Use defaults or override with provided values
             char_delay = default_char_delay
             word_delay = default_word_delay
             timeout = default_timeout
             
-            if len(parts) > 1:
-                try:
-                    char_delay = float(parts[1])
-                except ValueError:
-                    pass
-            if len(parts) > 2:
-                try:
-                    word_delay = float(parts[2])
-                except ValueError:
-                    pass
-            if len(parts) > 3:
-                try:
-                    timeout = float(parts[3])
-                except ValueError:
-                    pass
+            if "|" not in content:  # Only parse traditional params if no per-char delays
+                if len(parts) > 1:
+                    try:
+                        char_delay = float(parts[1])
+                    except (ValueError, IndexError):
+                        pass
+                if len(parts) > 2:
+                    try:
+                        word_delay = float(parts[2])
+                    except (ValueError, IndexError):
+                        pass
+                if len(parts) > 3:
+                    try:
+                        timeout = float(parts[3])
+                    except (ValueError, IndexError):
+                        pass
             
             keys = [k.strip().lower() for k in keys_part.replace("+", " ").split()]
             if keys and output:
-                self.add_rule(keys, output, timeout, char_delay, word_delay)
+                self.add_rule(keys, output, timeout, char_delay, word_delay, per_char_delays)
         except Exception as e:
             print(f"Error parsing if format: {line} - {e}")
 
     def _parse_equals_format(self, line, default_timeout, default_char_delay, default_word_delay):
-        """Parse <keys> = <output> format"""
+        """Parse <keys> = <output> format with optional per-char delays"""
         try:
-            keys_part, output_part = line.split("=", 1)
+            if "|" in line:
+                keys_output_part, delays_part = line.split("|", 1)
+                per_char_delays = delays_part.strip()
+            else:
+                keys_output_part = line
+                per_char_delays = None
+                
+            keys_part, output_part = keys_output_part.split("=", 1)
             keys = [k.strip().lower() for k in keys_part.replace("+", " ").split()]
             output = output_part.strip()
             if keys and output:
-                self.add_rule(keys, output, default_timeout, default_char_delay, default_word_delay)
+                self.add_rule(keys, output, default_timeout, default_char_delay, default_word_delay, per_char_delays)
         except Exception as e:
             print(f"Error parsing equals format: {line} - {e}")
 
     def _parse_colon_format(self, line, default_timeout, default_char_delay, default_word_delay):
-        """Parse <keys>: <output> format"""
+        """Parse <keys>: <output> format with optional per-char delays"""
         try:
-            keys_part, output_part = line.split(":", 1)
+            if "|" in line:
+                keys_output_part, delays_part = line.split("|", 1)
+                per_char_delays = delays_part.strip()
+            else:
+                keys_output_part = line
+                per_char_delays = None
+                
+            keys_part, output_part = keys_output_part.split(":", 1)
             keys = [k.strip().lower() for k in keys_part.replace("+", " ").split()]
             output = output_part.strip()
             if keys and output:
-                self.add_rule(keys, output, default_timeout, default_char_delay, default_word_delay)
+                self.add_rule(keys, output, default_timeout, default_char_delay, default_word_delay, per_char_delays)
         except Exception as e:
             print(f"Error parsing colon format: {line} - {e}")
 
@@ -313,7 +380,7 @@ class SmartMacroEngine:
                     self._type_output(rule, keys_used_count, rule["keys"])
 
     # -------------------------
-    # Type output safely - WITH KEY SUPPRESSION
+    # Type output safely - WITH PER-CHARACTER DELAYS
     # -------------------------
     def _type_output(self, rule, keys_used_count, keys_to_suppress):
         if self.is_typing:
@@ -336,16 +403,25 @@ class SmartMacroEngine:
             output = rule["output"]
             char_delay = rule["char_delay"]
             word_delay = rule["word_delay"]
+            per_char_delays = rule.get("per_char_delays")
             
             # Type the output with specified delays
             for i, char in enumerate(output):
                 pyautogui.write(char)
+                
+                # Calculate delay for this character
+                current_delay = char_delay  # Default delay
+                
+                if per_char_delays and char in per_char_delays:
+                    # Use per-character specific delay
+                    current_delay = per_char_delays[char]
+                elif i < len(output) - 1 and output[i+1] == ' ':
+                    # Use word delay before spaces
+                    current_delay = word_delay
+                
+                # Apply delay if not the last character
                 if i < len(output) - 1:
-                    # If next character is space, use word delay, else char delay
-                    if output[i+1] == ' ':
-                        time.sleep(word_delay)
-                    else:
-                        time.sleep(char_delay)
+                    time.sleep(current_delay)
                         
         except Exception as e:
             print(f"Error typing output: {e}")
@@ -382,7 +458,8 @@ class SmartMacroEngine:
             "output": r["output"],
             "timeout": r["timeout"],
             "char_delay": r["char_delay"],
-            "word_delay": r["word_delay"]
+            "word_delay": r["word_delay"],
+            "per_char_delays": r.get("per_char_delays", {})
         } for r in self.rules]
 
     def get_rules_count(self):

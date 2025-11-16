@@ -12,8 +12,8 @@ class MacroUI:
         ctk.set_default_color_theme("green")
 
         self.window = ctk.CTk()
-        self.window.title("MacroMaster-Pro | Code by Imran")
-        self.window.geometry("1150x760")
+        self.window.title("MacroMaster-Pro | Smart Logic Engine")
+        self.window.geometry("1250x800")  # Increased width for new column
 
         self.engine = SmartMacroEngine()
 
@@ -44,8 +44,8 @@ class MacroUI:
         # Bind mousewheel to canvas
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
 
-        # Table headers
-        headers = ["Keys / Sequence", "Output", "Timeout", "CharDelay", "WordDelay", "Delete"]
+        # Table headers - ADDED PER-CHAR DELAYS COLUMN
+        headers = ["Keys / Sequence", "Output", "Timeout", "CharDelay", "WordDelay", "Per-Char Delays", "Delete"]
         for i, h in enumerate(headers):
             ctk.CTkLabel(self.scrollable_frame, text=h, font=("Arial", 12, "bold")).grid(
                 row=0, column=i, padx=6, pady=6, sticky="ew"
@@ -57,27 +57,31 @@ class MacroUI:
         self.add_frame = ctk.CTkFrame(self.window)
         self.add_frame.pack(padx=12, pady=8, fill="x")
 
-        # Basic single-rule inputs
-        self.keys_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Keys (e.g. i or i+b or ctrl+shift+x)", width=200)
+        # Basic single-rule inputs - ADDED PER-CHAR DELAYS FIELD
+        self.keys_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Keys (e.g. i or i+b)", width=150)
         self.keys_entry.grid(row=0, column=0, padx=6)
 
-        self.output_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Output text", width=200)
+        self.output_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Output text", width=150)
         self.output_entry.grid(row=0, column=1, padx=6)
 
-        self.timeout_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Timeout (sec)", width=120)
+        self.timeout_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Timeout (sec)", width=100)
         self.timeout_entry.insert(0, "1.0")
         self.timeout_entry.grid(row=0, column=2, padx=6)
 
-        self.char_delay_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Char Delay (sec)", width=120)
+        self.char_delay_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Char Delay (sec)", width=100)
         self.char_delay_entry.insert(0, "0.02")
         self.char_delay_entry.grid(row=0, column=3, padx=6)
 
-        self.word_delay_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Word Delay (sec)", width=120)
+        self.word_delay_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Word Delay (sec)", width=100)
         self.word_delay_entry.insert(0, "0.15")
         self.word_delay_entry.grid(row=0, column=4, padx=6)
 
+        # NEW: Per-char delays entry
+        self.per_char_delays_entry = ctk.CTkEntry(self.add_frame, placeholder_text="Per-Char Delays (i:0.1 m:1.0)", width=200)
+        self.per_char_delays_entry.grid(row=0, column=5, padx=6)
+
         self.add_btn = ctk.CTkButton(self.add_frame, text="Add Rule", command=self.add_rule_from_inputs)
-        self.add_btn.grid(row=0, column=5, padx=6)
+        self.add_btn.grid(row=0, column=6, padx=6)
 
         # Separator
         self.sep = ctk.CTkLabel(self.window, text="— OR — Bulk Import Using Logic Syntax —", font=("Arial", 12))
@@ -90,14 +94,17 @@ class MacroUI:
         self.logic_label = ctk.CTkLabel(self.logic_frame, text="Logic (multiple clauses):", anchor="w")
         self.logic_label.grid(row=0, column=0, sticky="w", padx=6, pady=4, columnspan=4)
 
-        self.logic_text = ctk.CTkTextbox(self.logic_frame, width=980, height=120)
+        self.logic_text = ctk.CTkTextbox(self.logic_frame, width=1100, height=120)
         example = (
             "# Multiple formats supported:\n"
             "if i { imran, 0.02, 0.1, 1.0 }\n"
             "if i+b { khan, 0.02, 0.15, 1.0 }\n"
             "i+c = xyz\n"
             "i+d: hello world\n"
-            "if i+b+c { multi level sequence }"
+            "# NEW: Per-character delays using | separator:\n"
+            "if t { test | t:0.5 e:1.0 s:0.2 }\n"
+            "i = imran | i:0.1 m:1.0 r:0.05 a:0.2 n:0.3\n"
+            "b+c = khan | k:0.5 h:0.1 a:2.0 n:0.05"
         )
         self.logic_text.insert("0.0", example)
         self.logic_text.grid(row=1, column=0, columnspan=4, padx=6, pady=6)
@@ -147,6 +154,7 @@ class MacroUI:
     def add_rule_from_inputs(self):
         keys_raw = self.keys_entry.get().strip()
         output = self.output_entry.get().strip()
+        per_char_delays = self.per_char_delays_entry.get().strip() or None
         
         try:
             timeout = float(self.timeout_entry.get())
@@ -167,10 +175,12 @@ class MacroUI:
 
         keys = self._parse_keys_input(keys_raw)
         try:
-            self.engine.add_rule(keys, output, timeout, char_delay, word_delay)
+            self.engine.add_rule(keys, output, timeout, char_delay, word_delay, per_char_delays)
             self.update_table()
+            # Clear input fields
             self.keys_entry.delete(0, 'end')
             self.output_entry.delete(0, 'end')
+            self.per_char_delays_entry.delete(0, 'end')
         except ValueError as e:
             messagebox.showerror("Duplicate Rule", str(e))
 
@@ -254,10 +264,18 @@ class MacroUI:
             wd_label.grid(row=i+1, column=4, padx=6, pady=4, sticky="ew")
             row.append(wd_label)
 
+            # NEW: Per-char delays display
+            per_char_text = ""
+            if r.get("per_char_delays"):
+                per_char_text = ", ".join([f"{k}:{v}" for k, v in r["per_char_delays"].items()])
+            pcd_label = ctk.CTkLabel(self.scrollable_frame, text=per_char_text, wraplength=200)
+            pcd_label.grid(row=i+1, column=5, padx=6, pady=4, sticky="ew")
+            row.append(pcd_label)
+
             del_btn = ctk.CTkButton(self.scrollable_frame, text="Delete", 
                                   command=lambda rule=r: self._delete_rule_by_repr(rule),
                                   fg_color="red", hover_color="darkred")
-            del_btn.grid(row=i+1, column=5, padx=6, pady=4)
+            del_btn.grid(row=i+1, column=6, padx=6, pady=4)
             row.append(del_btn)
 
             self.row_widgets.append(row)
@@ -284,7 +302,13 @@ class MacroUI:
         """Export current rules to logic format"""
         rules_text = ""
         for rule in self.engine.debug_rules():
-            rules_text += f"if {'+'.join(rule['keys'])} {{ {rule['output']}, {rule['char_delay']}, {rule['word_delay']}, {rule['timeout']} }}\n"
+            base_rule = f"if {'+'.join(rule['keys'])} {{ {rule['output']}, {rule['char_delay']}, {rule['word_delay']}, {rule['timeout']} }}"
+            
+            if rule.get("per_char_delays"):
+                delays_str = " ".join([f"{k}:{v}" for k, v in rule["per_char_delays"].items()])
+                rules_text += f"{base_rule} | {delays_str}\n"
+            else:
+                rules_text += f"{base_rule}\n"
         
         # Create export window
         export_window = ctk.CTkToplevel(self.window)
