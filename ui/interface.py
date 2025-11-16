@@ -12,7 +12,7 @@ class MacroUI:
         ctk.set_default_color_theme("green")
 
         self.window = ctk.CTk()
-        self.window.title("MacroMaster-Pro | Smart Logic Engine")
+        self.window.title("MacroMaster-Pro | Code by Imran")
         self.window.geometry("1150x760")
 
         self.engine = SmartMacroEngine()
