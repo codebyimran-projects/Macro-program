@@ -15,6 +15,7 @@ class SmartMacroEngine:
         self.lookahead_timer = None
         self.active_timers = []
         self.pending_single_keys = {}  # Track single key timers
+        self.suppress_keys = set()  # Keys to suppress
 
         # Start keyboard listener
         threading.Thread(target=self._keyboard_listener, daemon=True).start()
@@ -142,13 +143,18 @@ class SmartMacroEngine:
         return self.add_rules_from_logic(logic_text, default_timeout, default_char_delay, default_word_delay)
 
     # -------------------------
-    # Keyboard listener
+    # Keyboard listener - INTERCEPT AND SUPPRESS KEYS
     # -------------------------
     def _keyboard_listener(self):
         keyboard.hook(self._on_key_event)
         keyboard.wait()
 
     def _on_key_event(self, event):
+        # Check if we should suppress this key
+        if event.name.lower() in self.suppress_keys:
+            keyboard.block_key(event.scan_code)  # Block the original key
+            return
+        
         if event.event_type != "down":
             return
         if self.is_typing:
@@ -220,8 +226,9 @@ class SmartMacroEngine:
                 if key in self.pending_single_keys:
                     del self.pending_single_keys[key]
                 
-                # Type the output
-                self._type_output(rule, 1)
+                # Add to suppress list and type output
+                self.suppress_keys.add(key)
+                self._type_output(rule, 1, [key])
 
     # -------------------------
     # Enhanced buffer processing with longest-match
@@ -301,22 +308,30 @@ class SmartMacroEngine:
                     del self.buffer[-keys_used_count:]
                     del self.buffer_time[-keys_used_count:]
                     
-                    # Type the output
-                    self._type_output(rule, keys_used_count)
+                    # Add sequence keys to suppress list and type output
+                    self.suppress_keys.update(rule["keys"])
+                    self._type_output(rule, keys_used_count, rule["keys"])
 
     # -------------------------
-    # Type output safely
+    # Type output safely - WITH KEY SUPPRESSION
     # -------------------------
-    def _type_output(self, rule, keys_used_count):
+    def _type_output(self, rule, keys_used_count, keys_to_suppress):
         if self.is_typing:
             # If already typing, schedule this for later
-            threading.Timer(0.1, self._type_output, args=[rule, keys_used_count]).start()
+            threading.Timer(0.1, self._type_output, args=[rule, keys_used_count, keys_to_suppress]).start()
             return
             
         self.is_typing = True
         try:
-            # Small delay to ensure previous keys are processed
-            time.sleep(0.01)
+            # First, delete the already-typed keys by sending backspace
+            for key in keys_to_suppress:
+                # Only delete single character keys (not modifiers like ctrl, shift)
+                if len(key) == 1 and key.isalpha():
+                    pyautogui.press('backspace')
+                    time.sleep(0.01)  # Small delay between backspaces
+            
+            # Small delay to ensure backspaces are processed
+            time.sleep(0.05)
             
             output = rule["output"]
             char_delay = rule["char_delay"]
@@ -335,6 +350,8 @@ class SmartMacroEngine:
         except Exception as e:
             print(f"Error typing output: {e}")
         finally:
+            # Clear suppress keys after typing is complete
+            self.suppress_keys.clear()
             self.is_typing = False
 
     # -------------------------
@@ -357,6 +374,7 @@ class SmartMacroEngine:
             self.rules.clear()
             self.buffer.clear()
             self.buffer_time.clear()
+            self.suppress_keys.clear()
 
     def debug_rules(self):
         return [{
