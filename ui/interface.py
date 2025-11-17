@@ -139,8 +139,7 @@ class MacroUI:
         self.refresh_btn = ctk.CTkButton(self.controls_frame, text="Refresh Table", command=self.update_table)
         self.refresh_btn.grid(row=0, column=1, padx=6)
 
-        self.export_btn = ctk.CTkButton(self.controls_frame, text="Export Rules", command=self.export_rules)
-        self.export_btn.grid(row=0, column=2, padx=6)
+   
 
         # initial table
         self.update_table()

@@ -15,7 +15,6 @@ class SmartMacroEngine:
         self.lookahead_timer = None
         self.active_timers = []
         self.pending_single_keys = {}  # Track single key timers
-        self.suppress_keys = set()  # Keys to suppress
 
         # Start keyboard listener
         threading.Thread(target=self._keyboard_listener, daemon=True).start()
@@ -210,18 +209,13 @@ class SmartMacroEngine:
         return self.add_rules_from_logic(logic_text, default_timeout, default_char_delay, default_word_delay)
 
     # -------------------------
-    # Keyboard listener - INTERCEPT AND SUPPRESS KEYS
+    # Keyboard listener - NO BLOCKING
     # -------------------------
     def _keyboard_listener(self):
         keyboard.hook(self._on_key_event)
         keyboard.wait()
 
     def _on_key_event(self, event):
-        # Check if we should suppress this key
-        if event.name.lower() in self.suppress_keys:
-            keyboard.block_key(event.scan_code)  # Block the original key
-            return
-        
         if event.event_type != "down":
             return
         if self.is_typing:
@@ -293,8 +287,7 @@ class SmartMacroEngine:
                 if key in self.pending_single_keys:
                     del self.pending_single_keys[key]
                 
-                # Add to suppress list and type output
-                self.suppress_keys.add(key)
+                # Type output (will delete the trigger key and replace it)
                 self._type_output(rule, 1, [key])
 
     # -------------------------
@@ -371,16 +364,16 @@ class SmartMacroEngine:
                 actual_sequence = self.buffer[-keys_used_count:]
                 
                 if actual_sequence == expected_sequence:
-                    # Remove the used sequence from buffer
-                    del self.buffer[-keys_used_count:]
-                    del self.buffer_time[-keys_used_count:]
+                    # COMPLETELY CLEAR THE BUFFER to prevent partial matches
+                    self.buffer.clear()
+                    self.buffer_time.clear()
+                    self.pending_single_keys.clear()
                     
-                    # Add sequence keys to suppress list and type output
-                    self.suppress_keys.update(rule["keys"])
+                    # Type output (will delete the trigger keys and replace them)
                     self._type_output(rule, keys_used_count, rule["keys"])
 
     # -------------------------
-    # Type output safely - WITH PER-CHARACTER DELAYS
+    # PERFECT TYPING OUTPUT - DELETE TRIGGER KEYS ONLY
     # -------------------------
     def _type_output(self, rule, keys_used_count, keys_to_suppress):
         if self.is_typing:
@@ -389,15 +382,14 @@ class SmartMacroEngine:
             return
             
         self.is_typing = True
+        
         try:
-            # First, delete the already-typed keys by sending backspace
-            for key in keys_to_suppress:
-                # Only delete single character keys (not modifiers like ctrl, shift)
-                if len(key) == 1 and key.isalpha():
-                    pyautogui.press('backspace')
-                    time.sleep(0.01)  # Small delay between backspaces
+            # Delete ONLY the trigger keys (not blocking, just backspacing)
+            for _ in range(keys_used_count):
+                pyautogui.press('backspace')
+                time.sleep(0.01)  # Small delay between backspaces
             
-            # Small delay to ensure backspaces are processed
+            # Wait for backspaces to complete
             time.sleep(0.05)
             
             output = rule["output"]
@@ -405,29 +397,32 @@ class SmartMacroEngine:
             word_delay = rule["word_delay"]
             per_char_delays = rule.get("per_char_delays")
             
-            # Type the output with specified delays
-            for i, char in enumerate(output):
-                pyautogui.write(char)
-                
-                # Calculate delay for this character
-                current_delay = char_delay  # Default delay
-                
-                if per_char_delays and char in per_char_delays:
-                    # Use per-character specific delay
-                    current_delay = per_char_delays[char]
-                elif i < len(output) - 1 and output[i+1] == ' ':
-                    # Use word delay before spaces
-                    current_delay = word_delay
-                
-                # Apply delay if not the last character
-                if i < len(output) - 1:
-                    time.sleep(current_delay)
+            # Type the output with delays if needed
+            if per_char_delays or char_delay > 0 or word_delay > 0:
+                # Type with custom delays
+                for i, char in enumerate(output):
+                    pyautogui.write(char)
+                    
+                    # Calculate delay for this character
+                    current_delay = char_delay  # Default delay
+                    
+                    if per_char_delays and char in per_char_delays:
+                        # Use per-character specific delay
+                        current_delay = per_char_delays[char]
+                    elif i < len(output) - 1 and output[i+1] == ' ':
+                        # Use word delay before spaces
+                        current_delay = word_delay
+                    
+                    # Apply delay if not the last character
+                    if i < len(output) - 1:
+                        time.sleep(current_delay)
+            else:
+                # Type instantly if no delays are specified
+                pyautogui.write(output, interval=0)
                         
         except Exception as e:
             print(f"Error typing output: {e}")
         finally:
-            # Clear suppress keys after typing is complete
-            self.suppress_keys.clear()
             self.is_typing = False
 
     # -------------------------
@@ -450,7 +445,6 @@ class SmartMacroEngine:
             self.rules.clear()
             self.buffer.clear()
             self.buffer_time.clear()
-            self.suppress_keys.clear()
 
     def debug_rules(self):
         return [{
