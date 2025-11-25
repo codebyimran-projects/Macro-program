@@ -12,13 +12,13 @@ class MacroUI:
         ctk.set_default_color_theme("green")
 
         self.window = ctk.CTk()
-        self.window.title("MacroMaster-Pro | Smart Logic Engine")
+        self.window.title("MacroMaster-Pro | Code by Imran")
         self.window.geometry("1250x800")  # Increased width for new column
 
         self.engine = SmartMacroEngine()
 
         # Header
-        self.header = ctk.CTkLabel(self.window, text="MacroMaster-Pro | Smart Logic Engine", font=("Arial", 24, "bold"))
+        self.header = ctk.CTkLabel(self.window, text="MacroMaster-Pro | Code by Imran", font=("Arial", 24, "bold"))
         self.header.pack(pady=12)
 
         # Table frame with scrollbar
